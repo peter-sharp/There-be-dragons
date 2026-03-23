@@ -1,0 +1,14 @@
+{
+  "name": "There Be Dragons",
+  "short_name": "There Be Dragons",
+  "description": "A junior archaeologist survives a crash in the Amazon — and finds a lab sealed since 1912.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1a1208",
+  "theme_color": "#1a1208",
+  "icons": [
+    { "src": "/public/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/public/icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

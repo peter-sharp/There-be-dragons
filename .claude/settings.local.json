@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:legacy.reactjs.org)",
+      "WebFetch(domain:enstacked.com)"
+    ]
+  }
+}
