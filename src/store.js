@@ -1,363 +1,289 @@
 /**
  * store.js — There Be Dragons · Game State
  *
- * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- * THREE SLICES
- * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- *
- *  metaSlice  — persists between runs (kid names, total runs played)
- *  runSlice   — active run state (torches, rooms cleared, seed)
- *  uiSlice    — transient navigation (current screen)
- *
- * Only metaSlice is saved to localStorage via persist/partialize.
- * runSlice and uiSlice reset completely on every new run.
- *
- * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- * SCENE GRAPH
- * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- *
- *  'names'         — name entry screen (first launch only, or reset)
- *  'hub'           — Challenger Station map, choose next room
- *  'room'          — inside a room, puzzle chain active
- *  'ability-card'  — special moment: ability card revealed
- *  'boss'          — final combined puzzle (all 3 rooms cleared)
- *  'win'           — run complete, mystery solved
- *  'dead'          — torches hit 0, permadeath screen
+ * THREE SLICES:
+ *   deckSlice  — persists between runs (flashcard deck)
+ *   runSlice   — active run state (rooms, player, inventory)
+ *   uiSlice    — transient navigation (current screen)
  */
 
 import { create } from 'zustand'
 import { persist, devtools } from 'zustand/middleware'
+import { hashCards } from './rng.js'
+import { generateRoomTree } from './generate.js'
 
 // ─────────────────────────────────────────────────────────
-// CONSTANTS
+// SLICE: Deck (persisted to localStorage)
 // ─────────────────────────────────────────────────────────
 
-export const STARTING_TORCHES = 5
+let nextCardId = Date.now()
 
-/** The three kids — ages and subjects are fixed, names are set by player */
-export const KID_DEFS = [
-  {
-    id: 'oldest',
-    age: 13,
-    subject: 'literacy',
-    room: 'library',
-    emoji: '📖',
-    personality: 'Careful and precise. Reads everything twice.',
-    catchphrase: 'Hold on — let me read that again.',
-  },
-  {
-    id: 'middle',
-    age: 10,
-    subject: 'maths',
-    room: 'engine',
-    emoji: '⚙️',
-    personality: 'Energetic. Jumps to conclusions. Usually right.',
-    catchphrase: "I've already worked it out.",
-  },
-  {
-    id: 'youngest',
-    age: 8,
-    subject: 'science',
-    room: 'specimens',
-    emoji: '🔬',
-    personality: 'Fearless. Asks questions nobody else thinks to ask.',
-    catchphrase: 'But what does it EAT?',
-  },
-]
+/** @param {Function} set @param {Function} get */
+const createDeckSlice = (set, get) => ({
+  /** @type {Array<{id: string, front: string, back: string, redHerrings: string[], repeats: number}>} */
+  cards: [],
 
-/** Room definitions — subject, lead kid, display info */
-export const ROOM_DEFS = {
-  library: {
-    id: 'library',
-    label: 'The Library',
-    kidId: 'oldest',
-    emoji: '📖',
-    desc: 'Journals from the 1912 expedition. The last entry stops mid-sentence.',
-    lockedDesc: 'Clear another room first.',
-  },
-  engine: {
-    id: 'engine',
-    label: 'The Engine Room',
-    kidId: 'middle',
-    emoji: '⚙️',
-    desc: 'Banks of dials, still running. Something is powering this place that shouldn\'t be.',
-    lockedDesc: 'Clear another room first.',
-  },
-  specimens: {
-    id: 'specimens',
-    label: 'The Specimen Hall',
-    kidId: 'youngest',
-    emoji: '🔬',
-    desc: 'Jars of samples. Sketches of animals with no Latin names. A smell that doesn\'t belong.',
-    lockedDesc: 'Clear another room first.',
-  },
-}
-
-// ─────────────────────────────────────────────────────────
-// SEEDED RANDOM — deterministic shuffle per run
-//
-// Each run gets a numeric seed. Using it for puzzle order
-// means the same seed always produces the same run — useful
-// for debugging and potential future "share your run" feature.
-// ─────────────────────────────────────────────────────────
-
-/**
- * Simple seeded PRNG (mulberry32).
- * Returns a function that produces floats in [0, 1).
- * @param {number} seed
- * @returns {() => number}
- */
-export const makeRng = seed => {
-  let s = seed
-  return () => {
-    s |= 0; s = s + 0x6D2B79F5 | 0
-    let t = Math.imul(s ^ s >>> 15, 1 | s)
-    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t
-    return ((t ^ t >>> 14) >>> 0) / 4294967296
-  }
-}
-
-/**
- * Shuffle an array using a seeded rng (Fisher-Yates).
- * @template T
- * @param {T[]} arr
- * @param {() => number} rng
- * @returns {T[]}
- */
-export const seededShuffle = (arr, rng) => {
-  const out = [...arr]
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]]
-  }
-  return out
-}
-
-// ─────────────────────────────────────────────────────────
-// SLICE: Meta
-//
-// The ONLY slice that survives between runs.
-// Persisted to localStorage via partialize.
-// ─────────────────────────────────────────────────────────
-
-/** @param {Function} set */
-const createMetaSlice = set => ({
-  /** Whether player has entered kid names at least once */
-  namesSet: false,
-
-  /** Names indexed by kid id */
-  kidNames: {
-    oldest: 'Sam',
-    middle: 'Alex',
-    youngest: 'Pip',
-  },
-
-  /** Total runs attempted (flavour / stats) */
-  totalRuns: 0,
-
-  /** Set all three kid names at once */
-  setKidNames: names => set(
-    { kidNames: names, namesSet: true },
+  addCard: ({ front, back, redHerrings = [], repeats = 1 }) => set(
+    state => ({
+      cards: [...state.cards, {
+        id: `card-${nextCardId++}`,
+        front,
+        back,
+        redHerrings: redHerrings.filter(h => h.trim()),
+        repeats,
+      }]
+    }),
     false,
-    'meta/setKidNames'
+    'deck/addCard'
   ),
 
-  /** Increment run counter */
-  incrementRuns: () => set(
-    state => ({ totalRuns: state.totalRuns + 1 }),
+  updateCard: (id, updates) => set(
+    state => ({
+      cards: state.cards.map(c =>
+        c.id === id
+          ? { ...c, ...updates, redHerrings: (updates.redHerrings || c.redHerrings).filter(h => h.trim()) }
+          : c
+      )
+    }),
     false,
-    'meta/incrementRuns'
+    'deck/updateCard'
   ),
+
+  removeCard: id => set(
+    state => ({ cards: state.cards.filter(c => c.id !== id) }),
+    false,
+    'deck/removeCard'
+  ),
+
+  clearDeck: () => set(
+    { cards: [] },
+    false,
+    'deck/clearDeck'
+  ),
+
+  importCSV: csvText => {
+    const lines = csvText.trim().split('\n')
+    const newCards = []
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim()
+      if (!line) continue
+      // Skip header row if it looks like one
+      if (i === 0 && line.toLowerCase().startsWith('front')) continue
+      const cols = line.split(',').map(c => c.trim())
+      if (cols.length < 2) continue
+      const [front, back, h1, h2, h3, h4, rep] = cols
+      newCards.push({
+        id: `card-${nextCardId++}`,
+        front,
+        back,
+        redHerrings: [h1, h2, h3, h4].filter(h => h && h.trim()),
+        repeats: parseInt(rep) || 1,
+      })
+    }
+    set(
+      state => ({ cards: [...state.cards, ...newCards] }),
+      false,
+      'deck/importCSV'
+    )
+  },
 })
 
 // ─────────────────────────────────────────────────────────
-// SLICE: Run
-//
-// Everything about the current run. Wiped on startRun().
-// Roguelike state lives here — torches, cleared rooms, seed.
+// SLICE: Run (reset each game)
 // ─────────────────────────────────────────────────────────
-
-/**
- * @typedef {{
- *   id: string,
- *   name: string,
- *   description: string,
- *   effect: string,
- *   emoji: string,
- *   kidId: string,
- * }} AbilityCard
- */
 
 /** @param {Function} set @param {Function} get */
 const createRunSlice = (set, get) => ({
-  /** Is a run currently active? */
-  active: false,
-
-  /** Shared family torch pool. 0 = permadeath. */
-  torches: STARTING_TORCHES,
-
-  /** Room ids cleared this run */
-  roomsCleared: /** @type {string[]} */ ([]),
-
-  /**
-   * Clues collected this run — used for escape-room chaining
-   * and boss puzzle. Map of roomId → clue string.
-   */
-  cluesFound: /** @type {Record<string, string>} */ ({}),
-
-  /** Ability cards earned this run */
-  abilityCards: /** @type {AbilityCard[]} */ ([]),
-
-  /**
-   * Numeric seed for this run.
-   * Drives puzzle order randomisation via seededShuffle.
-   * Generated fresh each startRun().
-   */
   seed: 0,
+  roomTree: null,
+  currentRoomId: null,
+  playerPos: { x: 0, y: 0 },
+  /** @type {Array<{id: string, text: string, cardId: string, isCorrect: boolean}>} */
+  inventory: [],
+  /** @type {string[]} */
+  unlockedDoors: [],
+  /** @type {string[]} */
+  openedBoxes: [],
+  /** @type {string[]} */
+  collectedPapers: [],
+  /** @type {string[]} */
+  keysHeld: [],
 
-  // ── Run lifecycle ──────────────────────────────────────
+  generateGame: () => {
+    const { cards } = get()
+    const seed = hashCards(cards)
+    const roomTree = generateRoomTree(cards, seed)
+    const entrance = roomTree.entrance
+    set({
+      seed,
+      roomTree,
+      currentRoomId: entrance.id,
+      playerPos: { ...entrance.entrance.pos },
+      inventory: [],
+      unlockedDoors: [],
+      openedBoxes: [],
+      collectedPapers: [],
+      keysHeld: [],
+    }, false, 'run/generateGame')
+  },
 
-  /**
-   * Start a fresh run. Wipes all run state, generates new seed.
-   * Called from hub when player confirms new game, or from dead screen.
-   */
-  startRun: () => {
-    get().incrementRuns()
-    set(
-      {
-        active: true,
-        torches: STARTING_TORCHES,
-        roomsCleared: [],
-        cluesFound: {},
-        abilityCards: [],
-        seed: Math.floor(Math.random() * 2 ** 32),
-      },
-      false,
-      'run/startRun'
+  movePlayer: (dx, dy) => {
+    const { currentRoomId, roomTree, playerPos, unlockedDoors, collectedPapers } = get()
+    const room = findRoom(roomTree, currentRoomId)
+    if (!room) return
+
+    const nx = playerPos.x + dx
+    const ny = playerPos.y + dy
+
+    // Bounds check
+    if (nx < 0 || ny < 0 || nx >= room.gridWidth || ny >= room.gridHeight) return
+
+    // Wall check
+    if (room.walls.has(`${nx},${ny}`)) return
+
+    // Box check — can't walk onto boxes
+    if (room.boxes.some(b => b.pos.x === nx && b.pos.y === ny)) return
+
+    // Locked door check (doors without requiredKeyId are always passable)
+    const door = room.doors.find(d => d.pos.x === nx && d.pos.y === ny)
+    if (door && door.requiredKeyId && !unlockedDoors.includes(door.requiredKeyId)) return
+
+    // Move player
+    set({ playerPos: { x: nx, y: ny } }, false, 'run/movePlayer')
+
+    // Check for paper pickup
+    const paper = room.papers.find(
+      p => p.pos.x === nx && p.pos.y === ny && !collectedPapers.includes(p.id)
     )
+    if (paper) {
+      get().collectPaper(paper)
+    }
+
+    // Check for door transition (always-open doors have no requiredKeyId)
+    if (door && (!door.requiredKeyId || unlockedDoors.includes(door.requiredKeyId))) {
+      get().enterDoor(door)
+    }
   },
 
-  /** End the run without winning — permadeath */
-  endRun: () => set(
-    { active: false },
-    false,
-    'run/endRun'
-  ),
-
-  // ── Torch management ───────────────────────────────────
-
-  /**
-   * Spend one torch (wrong answer).
-   * Returns true if the family is now dead (torches hit 0).
-   * Caller should check and navigate to 'dead' scene.
-   */
-  spendTorch: () => {
-    const next = get().torches - 1
-    set({ torches: next }, false, 'run/spendTorch')
-    return next <= 0
-  },
-
-  /** Gain torches (room cleared reward) */
-  gainTorch: (amount = 1) => set(
-    state => ({ torches: state.torches + amount }),
-    false,
-    'run/gainTorch'
-  ),
-
-  // ── Room management ────────────────────────────────────
-
-  /**
-   * Mark a room as cleared. Awards +1 torch.
-   * @param {string} roomId
-   */
-  clearRoom: roomId => set(
+  collectPaper: paper => set(
     state => ({
-      roomsCleared: [...new Set([...state.roomsCleared, roomId])],
-      torches: state.torches + 1,
+      collectedPapers: [...state.collectedPapers, paper.id],
+      inventory: [...state.inventory, {
+        id: paper.id,
+        text: paper.text,
+        cardId: paper.cardId,
+        isCorrect: paper.isCorrect,
+        hue: paper.hue || 0,
+      }],
     }),
     false,
-    'run/clearRoom'
+    'run/collectPaper'
   ),
 
-  /**
-   * Store a clue found in a room.
-   * Clues feed into subsequent puzzles (escape-room chaining)
-   * and the boss encounter.
-   * @param {string} roomId
-   * @param {string} clue
-   */
-  storeClue: (roomId, clue) => set(
-    state => ({ cluesFound: { ...state.cluesFound, [roomId]: clue } }),
-    false,
-    'run/storeClue'
-  ),
+  tryPaperOnBox: (paperId, boxId) => {
+    const { inventory, roomTree, currentRoomId } = get()
+    const paper = inventory.find(p => p.id === paperId)
+    const room = findRoom(roomTree, currentRoomId)
+    const box = room?.boxes.find(b => b.id === boxId)
+    if (!paper || !box) return false
 
-  // ── Ability cards ──────────────────────────────────────
+    if (paper.isCorrect && paper.cardId === box.cardId) {
+      // Correct — open box, consume paper
+      const updates = {
+        openedBoxes: [...get().openedBoxes, boxId],
+        inventory: get().inventory.filter(p => p.id !== paperId),
+      }
+      // If box contains a key, add it
+      if (box.containsKey) {
+        updates.keysHeld = [...get().keysHeld, box.containsKey]
+        // Auto-unlock the matching door
+        updates.unlockedDoors = [...get().unlockedDoors, box.containsKey]
+      }
+      set(updates, false, 'run/tryPaperOnBox:correct')
+      return true
+    }
+    // Wrong — no penalty, paper stays in inventory
+    return false
+  },
 
-  /**
-   * Add an ability card to the family's hand.
-   * @param {AbilityCard} card
-   */
-  addAbilityCard: card => set(
-    state => ({ abilityCards: [...state.abilityCards, card] }),
-    false,
-    'run/addAbilityCard'
-  ),
+  enterDoor: door => {
+    const { roomTree } = get()
+    const targetRoom = findRoom(roomTree, door.targetRoomId)
+    if (!targetRoom) return
+    set({
+      currentRoomId: door.targetRoomId,
+      playerPos: { ...targetRoom.entrance.pos },
+    }, false, 'run/enterDoor')
+  },
 
-  /**
-   * Use (consume) an ability card by id.
-   * @param {string} cardId
-   */
-  useAbilityCard: cardId => set(
-    state => ({ abilityCards: state.abilityCards.filter(c => c.id !== cardId) }),
-    false,
-    'run/useAbilityCard'
-  ),
+  resetRun: () => set({
+    seed: 0,
+    roomTree: null,
+    currentRoomId: null,
+    playerPos: { x: 0, y: 0 },
+    inventory: [],
+    unlockedDoors: [],
+    openedBoxes: [],
+    collectedPapers: [],
+    keysHeld: [],
+  }, false, 'run/resetRun'),
 })
 
+/**
+ * Find a room by id in the room tree (hub, entrance, or any branch room).
+ * @param {object} roomTree
+ * @param {string} roomId
+ * @returns {object|null}
+ */
+function findRoom(roomTree, roomId) {
+  if (!roomTree) return null
+  if (roomTree.entrance.id === roomId) return roomTree.entrance
+  if (roomTree.hub.id === roomId) return roomTree.hub
+  for (const branch of roomTree.branches) {
+    for (const room of branch.rooms) {
+      if (room.id === roomId) return room
+    }
+  }
+  return null
+}
+
+export { findRoom }
+
 // ─────────────────────────────────────────────────────────
-// SLICE: UI
-//
-// Current screen and any transient navigation state.
-// Never persisted. Reset to 'hub' on startRun().
+// SLICE: UI (transient)
 // ─────────────────────────────────────────────────────────
 
 /** @param {Function} set */
 const createUiSlice = set => ({
-  /**
-   * Current screen. Valid values:
-   *   'names'        — name entry (first run or reset)
-   *   'hub'          — station map, choose next room
-   *   'room'         — inside a room, puzzle chain active
-   *   'ability-card' — ability card reveal moment
-   *   'boss'         — final combined puzzle
-   *   'win'          — run complete
-   *   'dead'         — permadeath screen
-   */
-  screen: 'names',
+  /** @type {'title' | 'cards' | 'game' | 'win'} */
+  screen: 'title',
+  /** @type {string|null} */
+  activeBox: null,
+  /** @type {string|null} */
+  narrativeText: null,
 
-  /** Which room is currently active (when screen === 'room') */
-  activeRoom: /** @type {string|null} */ (null),
-
-  /** Navigate to a screen */
-  goTo: (screen, activeRoom = null) => set(
-    { screen, activeRoom },
+  goTo: screen => set(
+    { screen, activeBox: null, narrativeText: null },
     false,
     `ui/goTo:${screen}`
   ),
 
-  /** Enter a room — sets screen and activeRoom together */
-  enterRoom: roomId => set(
-    { screen: 'room', activeRoom: roomId },
+  setActiveBox: boxId => set(
+    { activeBox: boxId },
     false,
-    'ui/enterRoom'
+    'ui/setActiveBox'
   ),
 
-  /** Return to hub */
-  goToHub: () => set(
-    { screen: 'hub', activeRoom: null },
+  setNarrativeText: text => set(
+    { narrativeText: text },
     false,
-    'ui/goToHub'
+    'ui/setNarrativeText'
+  ),
+
+  clearNarrativeText: () => set(
+    { narrativeText: null },
+    false,
+    'ui/clearNarrativeText'
   ),
 })
 
@@ -369,17 +295,14 @@ export const useStore = create(
   devtools(
     persist(
       (...args) => ({
-        ...createMetaSlice(...args),
+        ...createDeckSlice(...args),
         ...createRunSlice(...args),
         ...createUiSlice(...args),
       }),
       {
         name: 'dragons-save',
-        // Only persist meta — run and ui always start fresh
         partialize: state => ({
-          namesSet: state.namesSet,
-          kidNames: state.kidNames,
-          totalRuns: state.totalRuns,
+          cards: state.cards,
         }),
       }
     ),
@@ -387,5 +310,4 @@ export const useStore = create(
   )
 )
 
-// Convenience accessor for use outside React (game loops etc.)
 export const getState = () => useStore.getState()

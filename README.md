@@ -12,38 +12,45 @@ Loosely inspired by Sir Arthur Conan Doyle's *The Lost World*.
 
 You are three siblings on a research flight over the Amazon with your Dad. The plane goes down. Through the jungle, you spot buildings — **Challenger Station**, a lab established in 1912 and sealed ever since. The equipment is still running. The journals stop mid-sentence. Something is moving in the trees outside.
 
-Each kid specialises in one room:
 
-| Kid | Age | Room | Subject |
-|-----|-----|------|---------|
-| Oldest | 13 | The Library | Literacy |
-| Middle | 10 | The Engine Room | Maths |
-| Youngest | 8 | The Specimen Hall | Science |
-
-Dad keeps watch. The family moves together.
+| Character | Age |
+|-----|-----|
+| Oldest | 13 |
+| Middle | 10 |
+| Youngest | 8 |
+| Dad | 41 |
 
 ---
 
-## Game Loop
+## Game Flows
 
+### Game generation
 ```
-Name your three kids
+Someone (usually parent) enters flashcards: front, back and red-herrings(optional). Number of times the card should appear.
   ↓
-Challenger Station hub — choose which room to enter
+  Seed is picked based on hash of flashcard content
   ↓
-Room — 3 chained puzzles (escape-room style)
-  Wrong answer = −1 torch from the shared pool
-  Clear the room = +1 torch + possible ability card
+One room is created per 2 to 3 flashcards with one flashcard reserved for hub room
   ↓
-Boss — The Central Hall (unlocks after all 3 rooms)
-  Uses clues found across all rooms
-  ↓
-Win — the mystery of July 14, 1912 is solved
-  OR
-Dead — torches hit 0, lights out, start again
+order is decided based on seed
 ```
 
-**Pure roguelike.** Nothing carries between runs except kid names. Room order is player-chosen each run. Puzzle order within rooms is seeded-random.
+### Gameplay
+```
+Name your three kids/Dad
+  ↓
+  Player
+Entrance to Challenger Station - 6 x 6 green tiles with entrance
+  ↓
+Hub Room - 12 X 12 tiles sepia/grey colorscheme - contains box with mechanical lock and 3 doors. Lock requires paper with correct answer in order to open box. Player must find correct answer scattered around hub if red herrings added or type answer.
+Box contains key to one of the doors.
+  ↓
+Rooms 3 connected to hub then others in addition to that based on cards entered. Each contains box like in hub that can only be opened with correct answer to get key to available room.
+  ↓
+Once all rooms cleared player wins
+```
+
+**Pure roguelike.** Nothing carries between runs except character names. Room order is seeded-random each run. Puzzle order within rooms is seeded-random.
 
 ---
 
@@ -73,7 +80,7 @@ Open `http://localhost:3000`
 ---
 
 ## Project structure
-
+Old. Needs to be completely revised.
 ```
 /
 ├── index.html                  # PWA shell + ESM importmap
@@ -116,34 +123,12 @@ Three Zustand slices:
 
 ## Adding content
 
-**New puzzle to a room:**
-1. Add an entry to the relevant pool in `src/data/puzzles.js`
-   (`LIBRARY_POOL`, `ENGINE_POOL`, or `SPECIMEN_POOL`)
-2. The room draws 3 puzzles per run automatically via seeded shuffle
-
-**New puzzle type:**
-1. Create `src/components/YourPuzzle.jsx`
-   — props: `{ puzzle, onSolved(answer), onWrong() }`
-2. Add a case to the `renderPuzzle` switch in `RoomScreen.jsx`
-3. Add puzzle data with `type: 'your-type'` to the relevant pool
-
-**New ability card:**
-1. Add to `ABILITY_CARDS` in `src/data/puzzles.js`
-2. Map it to a room in `ABILITY_CARD_ROOMS` in `RoomScreen.jsx`
-3. Handle the `effect` string in your UI
-
-**New screen:**
-1. Create `src/screens/YourScreen.jsx`
-2. Add a case to the switch in `src/app.jsx`
-3. Navigate to it via `useStore(s => s.goTo)('your-screen')`
+Needs revision
 
 ---
 
 ## Roadmap
 
-- [ ] Flesh out maths puzzles (NumberFillPuzzle)
-- [ ] Flesh out science puzzles (MatchPuzzle)
-- [ ] Ability card UI — show hand, allow use during puzzles
 - [ ] Illustrated character portraits for each kid + Dad
 - [ ] Dinosaur silhouette animations outside windows
 - [ ] Sound effects (jungle ambience, torch flicker)

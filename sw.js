@@ -1,4 +1,4 @@
-const CACHE = 'dragons-v3'
+const CACHE = 'dragons-v4'
 const STATIC = [
   '/',
   '/index.html',
@@ -6,15 +6,19 @@ const STATIC = [
   '/src/styles/main.css',
   '/src/app.js',
   '/src/store.js',
-  '/src/data/puzzles.js',
+  '/src/rng.js',
+  '/src/generate.js',
+  '/src/screens/TitleScreen.js',
+  '/src/screens/CardEntryScreen.js',
+  '/src/screens/GameScreen.js',
+  '/src/screens/WinScreen.js',
+  '/src/components/Room.js',
+  '/src/components/Player.js',
+  '/src/components/Paper.js',
+  '/src/components/Box.js',
+  '/src/components/Door.js',
   '/src/components/HUD.js',
-  '/src/components/WordOrderPuzzle.js',
-  '/src/components/NumberFillPuzzle.js',
-  '/src/components/MatchPuzzle.js',
-  '/src/screens/NameScreen.js',
-  '/src/screens/HubScreen.js',
-  '/src/screens/RoomScreen.js',
-  '/src/screens/GameScreens.js',
+  '/src/components/CardForm.js',
 ]
 
 self.addEventListener('install', e => {

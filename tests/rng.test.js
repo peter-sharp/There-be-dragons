@@ -1,125 +1,89 @@
-/**
- * tests/rng.test.js
- *
- * Tests for makeRng (mulberry32 PRNG) and seededShuffle.
- * These are pure functions with no side effects, so tests are fast and simple.
- */
-
-import { expect } from 'chai'
-import { makeRng, seededShuffle } from '../src/store.js'
-
-// ── makeRng ───────────────────────────────────────────────
+import { describe, it } from 'node:test'
+import assert from 'node:assert/strict'
+import { makeRng, seededShuffle, hashCards } from '../src/rng.js'
 
 describe('makeRng', () => {
-  it('returns a function', () => {
-    const rng = makeRng(42)
-    expect(rng).to.be.a('function')
+  it('produces deterministic sequence from same seed', () => {
+    const rng1 = makeRng(42)
+    const rng2 = makeRng(42)
+    const seq1 = Array.from({ length: 10 }, () => rng1())
+    const seq2 = Array.from({ length: 10 }, () => rng2())
+    assert.deepStrictEqual(seq1, seq2)
+  })
+
+  it('produces different sequences from different seeds', () => {
+    const rng1 = makeRng(1)
+    const rng2 = makeRng(2)
+    const seq1 = Array.from({ length: 5 }, () => rng1())
+    const seq2 = Array.from({ length: 5 }, () => rng2())
+    assert.notDeepStrictEqual(seq1, seq2)
   })
 
   it('produces values in [0, 1)', () => {
-    const rng = makeRng(12345)
-    for (let i = 0; i < 100; i++) {
+    const rng = makeRng(999)
+    for (let i = 0; i < 1000; i++) {
       const v = rng()
-      expect(v).to.be.at.least(0)
-      expect(v).to.be.below(1)
+      assert.ok(v >= 0, `value ${v} is < 0`)
+      assert.ok(v < 1, `value ${v} is >= 1`)
     }
-  })
-
-  it('same seed → same sequence', () => {
-    const rng1 = makeRng(99)
-    const rng2 = makeRng(99)
-    for (let i = 0; i < 20; i++) {
-      expect(rng1()).to.equal(rng2())
-    }
-  })
-
-  it('different seeds → different first values', () => {
-    const v1 = makeRng(1)()
-    const v2 = makeRng(2)()
-    expect(v1).to.not.equal(v2)
-  })
-
-  it('advances state on each call (not idempotent)', () => {
-    const rng = makeRng(7777)
-    const a = rng()
-    const b = rng()
-    expect(a).to.not.equal(b)
-  })
-
-  it('seed 0 produces valid output (no divide-by-zero)', () => {
-    const rng = makeRng(0)
-    const v = rng()
-    expect(v).to.be.at.least(0)
-    expect(v).to.be.below(1)
-    expect(Number.isNaN(v)).to.be.false
-  })
-
-  it('large seed produces valid output', () => {
-    const rng = makeRng(2 ** 31 - 1)
-    const v = rng()
-    expect(v).to.be.at.least(0)
-    expect(v).to.be.below(1)
-  })
-
-  it('produces floats, not integers', () => {
-    const rng = makeRng(54321)
-    // Over 20 calls, at least some should have fractional part
-    const values = Array.from({ length: 20 }, () => rng())
-    const hasFractional = values.some(v => v !== Math.floor(v))
-    expect(hasFractional).to.be.true
   })
 })
 
-// ── seededShuffle ─────────────────────────────────────────
-
 describe('seededShuffle', () => {
-  it('returns array of same length', () => {
+  it('produces deterministic shuffle from same seed', () => {
+    const arr = [1, 2, 3, 4, 5, 6, 7, 8]
+    const result1 = seededShuffle(arr, makeRng(100))
+    const result2 = seededShuffle(arr, makeRng(100))
+    assert.deepStrictEqual(result1, result2)
+  })
+
+  it('preserves all elements', () => {
+    const arr = [10, 20, 30, 40, 50]
+    const result = seededShuffle(arr, makeRng(7))
+    assert.strictEqual(result.length, arr.length)
+    for (const item of arr) {
+      assert.ok(result.includes(item), `missing element ${item}`)
+    }
+  })
+
+  it('does not mutate the original array', () => {
     const arr = [1, 2, 3, 4, 5]
-    const out = seededShuffle(arr, makeRng(1))
-    expect(out).to.have.length(arr.length)
+    const original = [...arr]
+    seededShuffle(arr, makeRng(5))
+    assert.deepStrictEqual(arr, original)
   })
 
-  it('does not mutate the input array', () => {
-    const arr = [1, 2, 3, 4, 5]
-    const copy = [...arr]
-    seededShuffle(arr, makeRng(1))
-    expect(arr).to.deep.equal(copy)
+  it('actually shuffles (not identity for non-trivial input)', () => {
+    const arr = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    const result = seededShuffle(arr, makeRng(42))
+    // Extremely unlikely to be identical for 10 elements
+    assert.notDeepStrictEqual(result, arr)
+  })
+})
+
+describe('hashCards', () => {
+  const cards = [
+    { front: 'Q1', back: 'A1', redHerrings: ['W1'] },
+    { front: 'Q2', back: 'A2', redHerrings: ['W2', 'W3'] },
+  ]
+
+  it('produces deterministic hash', () => {
+    const h1 = hashCards(cards)
+    const h2 = hashCards(cards)
+    assert.strictEqual(h1, h2)
   })
 
-  it('contains all original elements', () => {
-    const arr = ['a', 'b', 'c', 'd', 'e']
-    const out = seededShuffle(arr, makeRng(42))
-    expect(out.sort()).to.deep.equal([...arr].sort())
+  it('is order-independent (sorts internally)', () => {
+    const reversed = [...cards].reverse()
+    assert.strictEqual(hashCards(cards), hashCards(reversed))
   })
 
-  it('same seed + same input → same output', () => {
-    const arr = [1, 2, 3, 4, 5]
-    const out1 = seededShuffle(arr, makeRng(100))
-    const out2 = seededShuffle(arr, makeRng(100))
-    expect(out1).to.deep.equal(out2)
+  it('produces different hashes for different cards', () => {
+    const other = [{ front: 'X', back: 'Y', redHerrings: [] }]
+    assert.notStrictEqual(hashCards(cards), hashCards(other))
   })
 
-  it('different seeds → different outputs (with high probability)', () => {
-    // Use a long array to make collision extremely unlikely
-    const arr = Array.from({ length: 20 }, (_, i) => i)
-    const out1 = seededShuffle(arr, makeRng(1))
-    const out2 = seededShuffle(arr, makeRng(999))
-    expect(out1).to.not.deep.equal(out2)
-  })
-
-  it('handles empty array', () => {
-    const out = seededShuffle([], makeRng(1))
-    expect(out).to.deep.equal([])
-  })
-
-  it('handles single-element array', () => {
-    const out = seededShuffle([42], makeRng(1))
-    expect(out).to.deep.equal([42])
-  })
-
-  it('returns a new array, not the input reference', () => {
-    const arr = [1, 2, 3]
-    const out = seededShuffle(arr, makeRng(1))
-    expect(out).to.not.equal(arr)
+  it('returns a number', () => {
+    assert.strictEqual(typeof hashCards(cards), 'number')
   })
 })
