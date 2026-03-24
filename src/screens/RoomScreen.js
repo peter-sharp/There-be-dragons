@@ -5,6 +5,7 @@ import { LIBRARY_POOL, ENGINE_POOL, SPECIMEN_POOL, ABILITY_CARDS } from '../data
 import WordOrderPuzzle from '../components/WordOrderPuzzle.js'
 import NumberFillPuzzle from '../components/NumberFillPuzzle.js'
 import MatchPuzzle from '../components/MatchPuzzle.js'
+import RoomSVG from '../components/RoomSVG.js'
 
 const html = htm.bind(createElement)
 
@@ -129,6 +130,10 @@ export default function RoomScreen() {
       <div className="level__header">
         <span className="level__progress">${`Puzzle ${puzzleIdx + 1} of ${puzzles.length}`}</span>
         <h2 className="level__title">${`${room.emoji} ${room.label}`}</h2>
+      </div>
+
+      <div className="room__scene">
+        <${RoomSVG} roomId=${activeRoom} />
       </div>
 
       <div className="room__kid-badge">

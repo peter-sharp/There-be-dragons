@@ -331,6 +331,28 @@ body {
 .btn--primary:hover:not(:disabled) { background: var(--candle-glow); }
 .btn--full { width: 100%; margin-top: 0.5rem; }
 
+/* ── SVG Room scenes ────────────────────────────────────── */
+
+/* Thumbnail inside hub room card */
+.room-card__svg {
+  width: 80px; height: 50px; flex-shrink: 0;
+  border-radius: 4px; overflow: hidden;
+  border: 1px solid rgba(154,122,58,0.4);
+}
+.room-card__svg svg { display: block; width: 100%; height: 100%; }
+
+/* Full-width banner inside room screen */
+.room__scene {
+  width: 100%; border-radius: var(--radius);
+  overflow: hidden; margin-bottom: 0.75rem;
+  border: 1px solid rgba(154,122,58,0.3);
+  box-shadow: inset 0 0 20px rgba(0,0,0,0.4);
+}
+.room__scene svg { display: block; width: 100%; height: auto; }
+
+/* Emoji items inside SVG — no text cursor, no selection */
+.room-svg__item { user-select: none; cursor: default; }
+
 /* ── Animations ─────────────────────────────────────────── */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px); }

@@ -1,6 +1,7 @@
 import { createElement } from 'react'
 import htm from 'htm'
 import { useStore, KID_DEFS, ROOM_DEFS, STARTING_TORCHES } from '../store.js'
+import RoomSVG from '../components/RoomSVG.js'
 
 const html = htm.bind(createElement)
 
@@ -76,7 +77,9 @@ export default function HubScreen() {
               onClick=${() => handleEnterRoom(room.id)}
             >
               <div className="room-card__top">
-                <span className="room-card__emoji">${room.emoji}</span>
+                <div className="room-card__svg">
+                  <${RoomSVG} roomId=${room.id} />
+                </div>
                 <div className="room-card__meta">
                   <span className="room-card__subject">${`${getKidName(kid.id)}'s room · ${kid.subject}`}</span>
                   <h2 className="room-card__label">${room.label}</h2>
